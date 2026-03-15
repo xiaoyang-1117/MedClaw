@@ -1,0 +1,27 @@
+# ===================================================================
+# MedClaw — Python 依赖
+# ===================================================================
+
+# --- 前端 & 配置 ---
+streamlit>=1.30.0
+python-dotenv>=1.0.0
+pydantic>=2.5.0
+
+# --- LLM 调用 ---
+openai>=1.10.0
+
+# --- 医学影像 I/O ---
+SimpleITK>=2.3.0
+nibabel>=5.0.0
+
+# --- 深度学习框架 ---
+torch>=2.0.0
+torchvision>=0.15.0
+
+# --- MONAI 医学影像 AI ---
+monai[all]>=1.3.0
+
+# --- 肺分割 ---
+# lungmask 需要从 GitHub 安装:
+#   pip install git+https://github.com/JoHof/lungmask
+# 或者手动克隆后 pip install -e .

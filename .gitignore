@@ -1,0 +1,42 @@
+# Environment secrets
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Uploaded files
+uploads/
+
+# Data & datasets
+Model/Data/
+Model/subset*/
+Model/seg-lungs-LUNA16/
+
+# MONAI bundle artifacts & weights
+monai_bundles/**/models/
+
+# Logs & outputs
+logs/
+*.log
+*.tmp
+*.cache
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.ts
+*.npz
+*.npy
+*.pkl
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+Desktop.ini
