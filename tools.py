@@ -147,6 +147,17 @@ def load_medical_image(file_path: str) -> "SimpleITK.Image":
 
     elif lower.endswith(".mhd"):
         # ---------- MetaImage (.mhd + .raw) ----------
+        # .mhd 头文件引用同目录的 .raw 数据文件，两者必须在同一目录
+        raw_companion = Path(file_path).with_suffix(".raw")
+        if not raw_companion.exists():
+            # 也检查 .zraw 等变体
+            zraw = Path(file_path).with_suffix(".zraw")
+            if not zraw.exists():
+                raise FileNotFoundError(
+                    f".mhd 文件缺少配套的 .raw 数据文件。\n"
+                    f"请将 .mhd 和 .raw 文件一起上传。\n"
+                    f"期望的 .raw 路径: {raw_companion}"
+                )
         image = sitk.ReadImage(file_path)
         print(
             f"[ImageLoader] MHD 加载完成: "
@@ -154,6 +165,20 @@ def load_medical_image(file_path: str) -> "SimpleITK.Image":
             f"Spacing={image.GetSpacing()}"
         )
         return image
+
+    elif lower.endswith(".raw"):
+        # ---------- .raw 文件 → 查找配套 .mhd ----------
+        # .raw 是纯数据文件，需要配套的 .mhd 头文件才能读取
+        mhd_companion = Path(file_path).with_suffix(".mhd")
+        if mhd_companion.exists():
+            print(f"[ImageLoader] 找到配套 .mhd: {mhd_companion}")
+            return load_medical_image(str(mhd_companion))
+        else:
+            raise FileNotFoundError(
+                f".raw 文件缺少配套的 .mhd 头文件。\n"
+                f"请将 .mhd 和 .raw 文件一起上传。\n"
+                f"期望的 .mhd 路径: {mhd_companion}"
+            )
 
     else:
         raise ValueError(f"不支持的文件格式: {file_path}")
@@ -406,15 +431,20 @@ def _run_monai_detection(image_path: str, mask_path: Optional[str]) -> dict:
         nms_thresh=0.22,
         detections_per_img=300,
     )
+    # 关键：必须将 detector 也设为 eval 模式
+    # RetinaNetDetector 是 nn.Module，training=True 时期望 targets 输入
+    detector.eval()
 
-    # 滑动窗口推理参数
-    infer_patch_size = [512, 512, 192]
+    # 滑动窗口推理参数 — 针对 8GB 显存优化
+    # 原始 Bundle 用 [512,512,192]，8GB GPU 会 OOM
+    # 缩小 patch + 降低 overlap + FP16 推理
+    infer_patch_size = [256, 256, 128]
     detector.set_sliding_window_inferer(
         roi_size=infer_patch_size,
-        overlap=0.25,
+        overlap=0.125,       # 降低重叠率以减少推理窗口数
         sw_batch_size=1,
         mode="constant",
-        device="cpu",
+        device="cpu",        # 滑动窗口结果暂存到 CPU，避免 GPU 累积显存
     )
 
     # ---------- 4. 预处理 ----------
@@ -447,9 +477,13 @@ def _run_monai_detection(image_path: str, mask_path: Optional[str]) -> dict:
         collate_fn=monai.data.utils.no_collation,
     )
 
-    # ---------- 6. 推理 ----------
-    print("[Tool 100] 🔄 开始推理 (可能需要几分钟)...")
+    # ---------- 6. 推理 (FP16 + 显存优化) ----------
+    print("[Tool 100] 🔄 开始推理 (FP16 模式，适配 8GB 显存)...")
     results = []
+
+    # 清理 GPU 缓存，为推理腾出空间
+    if device.type == "cuda":
+        torch.cuda.empty_cache()
 
     with torch.no_grad():
         for batch_data in dataloader:
@@ -463,10 +497,18 @@ def _run_monai_detection(image_path: str, mask_path: Optional[str]) -> dict:
                 or image_tensor.shape[-2] > infer_patch_size[1]
                 or image_tensor.shape[-1] > infer_patch_size[2]
             )
-            outputs = detector(
-                [image_tensor],
-                use_inferer=use_inferer,
-            )
+
+            # FP16 混合精度推理 — 显存占用减半
+            with torch.amp.autocast("cuda", enabled=(device.type == "cuda")):
+                outputs = detector(
+                    [image_tensor],
+                    use_inferer=use_inferer,
+                )
+
+            # 推理完成后立即释放输入张量
+            del image_tensor
+            if device.type == "cuda":
+                torch.cuda.empty_cache()
 
             # outputs 是一个列表，每个元素是 dict: {box, label, label_scores}
             if outputs and len(outputs) > 0:

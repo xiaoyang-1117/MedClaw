@@ -247,25 +247,52 @@ col_attach, col_input = st.columns([1, 12])
 with col_attach:
     with st.popover("➕", use_container_width=True):
         st.markdown("**📎 附加医学影像**")
-        st.caption("支持 .zip (DICOM序列), .nii.gz, .mhd, .raw")
-        uploaded_file = st.file_uploader(
+        st.caption("支持 .zip (DICOM序列), .nii.gz, .mhd+.raw (需同时选择两个文件)")
+        uploaded_files = st.file_uploader(
             "选择影像文件",
             type=["zip", "gz", "nii", "mhd", "raw"],
             key="file_uploader",
             label_visibility="collapsed",
+            accept_multiple_files=True,
         )
 
-        if uploaded_file is not None:
-            # 保存到临时目录
+        if uploaded_files:
+            # 将所有文件保存到同一个临时目录
             upload_dir = Path(tempfile.gettempdir()) / "medclaw_uploads"
             upload_dir.mkdir(exist_ok=True)
-            save_path = upload_dir / uploaded_file.name
-            save_path.write_bytes(uploaded_file.getvalue())
+            saved_names = []
+            primary_path = None
 
-            st.session_state.uploaded_path = str(save_path)
-            st.session_state.uploaded_name = uploaded_file.name
+            for uf in uploaded_files:
+                save_path = upload_dir / uf.name
+                save_path.write_bytes(uf.getvalue())
+                saved_names.append(uf.name)
 
-            st.success(f"✅ {uploaded_file.name}")
+            # 自动选择主文件: .mhd > .nii/.nii.gz > .zip > 其他
+            for uf in uploaded_files:
+                lower = uf.name.lower()
+                if lower.endswith(".mhd"):
+                    primary_path = str(upload_dir / uf.name)
+                    break
+            if primary_path is None:
+                for uf in uploaded_files:
+                    lower = uf.name.lower()
+                    if lower.endswith((".nii", ".nii.gz", ".gz")):
+                        primary_path = str(upload_dir / uf.name)
+                        break
+            if primary_path is None:
+                for uf in uploaded_files:
+                    lower = uf.name.lower()
+                    if lower.endswith(".zip"):
+                        primary_path = str(upload_dir / uf.name)
+                        break
+            if primary_path is None and saved_names:
+                primary_path = str(upload_dir / saved_names[0])
+
+            st.session_state.uploaded_path = primary_path
+            st.session_state.uploaded_name = ", ".join(saved_names)
+
+            st.success(f"✅ 已上传 {len(saved_names)} 个文件: {', '.join(saved_names)}")
 
 with col_input:
     user_input = st.chat_input(
