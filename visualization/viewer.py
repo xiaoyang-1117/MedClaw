@@ -40,6 +40,11 @@ WINDOW_PRESETS: Dict[str, tuple] = {
 }
 
 
+def _go_to_slice(state_key: str, slice_idx: int) -> None:
+    """Streamlit callback: 更新 session state 以跳转到指定切片。"""
+    st.session_state[state_key] = slice_idx
+
+
 def render_ct_viewer(
     ct_volume: CTVolume,
     findings: Optional[List[dict]] = None,
@@ -220,6 +225,24 @@ def render_ct_viewer(
         for idx, nodule in enumerate(visible_nodules[:6]):
             with cols[idx % 3]:
                 _render_nodule_card(nodule)
+
+    # --------------------------------------------------------
+    # 结节快速导航列表
+    # --------------------------------------------------------
+    if annotations:
+        with st.expander("🔍 结节检测列表", expanded=True):
+            st.caption("👈 点击下方结节即可快速跳转至其中心切片位置：")
+            nav_cols = st.columns(4)
+            for idx, nodule in enumerate(annotations):
+                with nav_cols[idx % 4]:
+                    btn_label = f"#{nodule.nodule_id} - Z:{nodule.center_slice} - Conf:{nodule.confidence:.0%}"
+                    st.button(
+                        label=btn_label,
+                        key=f"{key_prefix}_nav_{nodule.nodule_id}",
+                        on_click=_go_to_slice,
+                        args=(f"{key_prefix}_slice", nodule.center_slice),
+                        use_container_width=True,
+                    )
 
 
 def _render_nodule_card(nodule: NoduleAnnotation) -> None:
